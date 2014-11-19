@@ -166,7 +166,7 @@ func (table *CacheTable) Delete(key interface{}) (*CacheItem, error) {
 	r, ok := table.items[key]
 	if !ok {
 		table.RUnlock()
-		return nil, errors.New("Key not found in cache")
+		return nil, ErrKeyNotFound
 	}
 
 	// Cache value so we don't keep blocking the mutex.
@@ -224,10 +224,10 @@ func (table *CacheTable) Value(key interface{}) (*CacheItem, error) {
 			return item, nil
 		}
 
-		return nil, errors.New("Key not found and could not be loaded into cache")
+		return nil, ErrKeyNotFoundOrLoadable
 	}
 
-	return nil, errors.New("Key not found in cache")
+	return nil, ErrKeyNotFound
 }
 
 // Delete all items from cache.
