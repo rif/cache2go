@@ -1,154 +1,114 @@
 package cache2go
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
 
 type myStruct struct {
-	XEntry
 	data string
 }
 
 func TestCache(t *testing.T) {
+	cache := NewTTL(time.Second)
 	a := &myStruct{data: "mama are mere"}
-	a.XCache("mama", 1*time.Second, a)
-	b, err := GetXCached("mama")
-	if err != nil || b == nil || b != a {
-		t.Error("Error retriving data from cache", err)
+	cache.Set("mama", a)
+	b, ok := cache.Get("mama")
+	if !ok || b == nil || b != a {
+		t.Error("Error retriving data from cache", b)
 	}
 }
 
 func TestCacheExpire(t *testing.T) {
+	cache := NewTTL(5 * time.Millisecond)
 	a := &myStruct{data: "mama are mere"}
-	a.XCache("mama", 1*time.Second, a)
-	b, err := GetXCached("mama")
-	if err != nil || b == nil || b.(*myStruct).data != "mama are mere" {
-		t.Error("Error retriving data from cache", err)
+	cache.Set("mama", a)
+	b, ok := cache.Get("mama")
+	if !ok || b == nil || b != a {
+		t.Error("Error retriving data from cache", b)
 	}
-	time.Sleep(1001 * time.Millisecond)
-	b, err = GetXCached("mama")
-	if err == nil || b != nil {
-		t.Error("Error expiring data")
+	time.Sleep(5 * time.Millisecond)
+	b, ok = cache.Get("mama")
+	if ok || b != nil {
+		t.Error("Error expiring data from cache", b)
 	}
 }
 
-func TestCacheKeepAlive(t *testing.T) {
-	a := &myStruct{data: "mama are mere"}
-	a.XCache("mama", 1*time.Second, a)
-	b, err := GetXCached("mama")
-	if err != nil || b == nil || b.(*myStruct).data != "mama are mere" {
-		t.Error("Error retriving data from cache", err)
+func TestLRU(t *testing.T) {
+	cache := NewLRU(32)
+	for i := 0; i < 40; i++ {
+		cache.Set(fmt.Sprintf("%d", i), i)
 	}
-	time.Sleep(500 * time.Millisecond)
-	b.KeepAlive()
-	time.Sleep(501 * time.Millisecond)
-	if err != nil {
-		t.Error("Error keeping cached data alive", err)
+	if cache.Len() != 32 {
+		t.Error("error dicarding least recently used entry: ", cache.Len())
 	}
-	time.Sleep(1000 * time.Millisecond)
-	b, err = GetXCached("mama")
-	if err == nil || b != nil {
-		t.Error("Error expiring data")
+	last := cache.ll.Back().Value.(entry).Value().(int)
+	if last != 8 {
+		t.Error("error dicarding least recently used entry: ", last)
+	}
+}
+
+func TestLRUParallel(t *testing.T) {
+	cache := NewLRU(32)
+	wg := sync.WaitGroup{}
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func(x int) {
+			defer wg.Done()
+			cache.Set(fmt.Sprintf("%d", x), x)
+		}(i)
+	}
+	wg.Wait()
+	if cache.Len() != 32 {
+		t.Error("error dicarding least recently used entry: ", cache.Len())
 	}
 }
 
 func TestFlush(t *testing.T) {
+	cache := NewTTL(5 * time.Millisecond)
 	a := &myStruct{data: "mama are mere"}
-	a.XCache("mama", 10*time.Second, a)
-	time.Sleep(1000 * time.Millisecond)
-	Flush()
-	b, err := GetXCached("mama")
-	if err == nil || b != nil {
+	cache.Set("mama", a)
+	time.Sleep(5 * time.Millisecond)
+	cache.Flush()
+	b, ok := cache.Get("mama")
+	if ok || b != nil {
 		t.Error("Error expiring data")
 	}
 }
 
-func TestFlushNoTimout(t *testing.T) {
+func TestFlushNoTimeout(t *testing.T) {
+	cache := NewTTL(5 * time.Millisecond)
 	a := &myStruct{data: "mama are mere"}
-	a.XCache("mama", 10*time.Second, a)
-	Flush()
-	b, err := GetXCached("mama")
-	if err == nil || b != nil {
+	cache.Set("mama", a)
+	cache.Flush()
+	b, ok := cache.Get("mama")
+	if ok || b != nil {
 		t.Error("Error expiring data")
 	}
 }
 
 func TestRemKey(t *testing.T) {
-	Cache("t11_mm", "test")
-	if t1, err := GetCached("t11_mm"); err != nil || t1 != "test" {
+	cache := NewLRU(10)
+	cache.Set("t11_mm", "test")
+	if t1, ok := cache.Get("t11_mm"); !ok || t1 != "test" {
 		t.Error("Error setting cache")
 	}
-	RemKey("t11_mm")
-	if t1, err := GetCached("t11_mm"); err == nil || t1 == "test" {
+	cache.Remove("t11_mm")
+	if t1, ok := cache.Get("t11_mm"); ok || t1 == "test" {
 		t.Error("Error removing cached key")
 	}
 }
 
-func TestXRemKey(t *testing.T) {
-	a := &myStruct{data: "mama are mere"}
-	a.XCache("mama", 10*time.Second, a)
-	if t1, err := GetXCached("mama"); err != nil || t1 != a {
-		t.Error("Error setting xcache")
-	}
-	RemKey("mama")
-	if t1, err := GetXCached("mama"); err == nil || t1 == a {
-		t.Error("Error removing xcached key: ", err, t1)
-	}
-}
-
-/*
-These tests sometimes fails on drone.io
-func TestGetKeyAge(t *testing.T) {
-	Cache("t1", "test")
-	d, err := GetKeyAge("t1")
-	if err != nil || d > time.Millisecond || d < time.Nanosecond {
-		t.Error("Error getting cache key age: ", d)
-	}
-}
-
-
-func TestXGetKeyAge(t *testing.T) {
-	a := &myStruct{data: "mama are mere"}
-	a.XCache("t1", 10*time.Second, a)
-	d, err := GetXKeyAge("t1")
-	if err != nil || d > time.Millisecond || d < time.Nanosecond {
-		t.Error("Error getting cache key age: ", d)
-	}
-}
-*/
-
-func TestRemPrefixKey(t *testing.T) {
-	Cache("x_t1", "test")
-	Cache("y_t1", "test")
-	RemPrefixKey("x_")
-	_, errX := GetCached("x_t1")
-	_, errY := GetCached("y_t1")
-	if errX == nil || errY != nil {
-		t.Error("Error removing prefix: ", errX, errY)
-	}
-}
-
-func TestXRemPrefixKey(t *testing.T) {
-	a := &myStruct{data: "mama are mere"}
-	a.XCache("x_t1", 10*time.Second, a)
-	a.XCache("y_t1", 10*time.Second, a)
-
-	RemPrefixKey("x_")
-	_, errX := GetXCached("x_t1")
-	_, errY := GetXCached("y_t1")
-	if errX == nil || errY != nil {
-		t.Error("Error removing prefix: ", errX, errY)
-	}
-}
-
 func TestCount(t *testing.T) {
-	Cache("dst_A1", "1")
-	Cache("dst_A2", "2")
-	Cache("rpf_A3", "3")
-	Cache("dst_A4", "4")
-	Cache("dst_A5", "5")
-	if CountEntries("dst_") != 4 {
-		t.Error("Error countiong entries: ", CountEntries("dst_"))
+	cache := NewTTL(10 * time.Millisecond)
+	cache.Set("dst_A1", "1")
+	cache.Set("dst_A2", "2")
+	cache.Set("rpf_A3", "3")
+	cache.Set("dst_A4", "4")
+	cache.Set("dst_A5", "5")
+	if cache.Len() != 5 {
+		t.Error("Error countiong entries: ", cache.Len())
 	}
 }
