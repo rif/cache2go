@@ -49,11 +49,12 @@ func New(maxEntries int, expire time.Duration) *Cache {
 // cleans expired entries performing minimal checks
 func (c *Cache) cleanExpired() {
 	for {
+		c.mu.RLock()
 		if len(c.ttlIndex) == 0 {
+			c.mu.RUnlock()
 			time.Sleep(c.expiration)
 			continue
 		}
-		c.mu.RLock()
 		e := c.ttlIndex[0]
 		c.mu.RUnlock()
 
