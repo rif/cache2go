@@ -107,7 +107,6 @@ func (c *Cache) Get(key string) (value interface{}, ok bool) {
 	}
 	if e, hit := c.cache[key]; hit {
 		c.lruIndex.MoveToFront(e)
-		e.Value.(*entry).timestamp = time.Now()
 		return e.Value.(*entry).value, true
 	}
 	return
