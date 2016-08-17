@@ -29,7 +29,7 @@ func TestCacheExpire(t *testing.T) {
 	if !ok || b == nil || b != a {
 		t.Error("Error retriving data from cache", b)
 	}
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(8 * time.Millisecond)
 	b, ok = cache.Get("mama")
 	if ok || b != nil {
 		t.Error("Error expiring data from cache", b)
@@ -62,7 +62,7 @@ func TestLRUandExpire(t *testing.T) {
 	if last != 8 {
 		t.Error("error dicarding least recently used entry: ", last)
 	}
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(8 * time.Millisecond)
 	if cache.Len() != 0 {
 		t.Error("error dicarding expired entries: ", cache.Len())
 	}
