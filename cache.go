@@ -37,10 +37,10 @@ func New(maxEntries int, expire time.Duration) *Cache {
 		maxEntries: maxEntries,
 		expiration: expire,
 		lruIndex:   list.New(),
-		ttlIndex:   make([]*list.Element, 0),
 		cache:      make(map[interface{}]*list.Element),
 	}
 	if c.expiration > 0 {
+		c.ttlIndex = make([]*list.Element, 0)
 		go c.cleanExpired()
 	}
 	return c
@@ -75,7 +75,9 @@ func (c *Cache) Set(key string, value interface{}) {
 	if c.cache == nil {
 		c.cache = make(map[interface{}]*list.Element)
 		c.lruIndex = list.New()
-		c.ttlIndex = make([]*list.Element, 0)
+		if c.expiration > 0 {
+			c.ttlIndex = make([]*list.Element, 0)
+		}
 	}
 
 	if e, ok := c.cache[key]; ok {
@@ -89,7 +91,9 @@ func (c *Cache) Set(key string, value interface{}) {
 		return
 	}
 	e := c.lruIndex.PushFront(&entry{key: key, value: value, timestamp: time.Now()})
-	c.ttlIndex = append(c.ttlIndex, e)
+	if c.expiration > 0 {
+		c.ttlIndex = append(c.ttlIndex, e)
+	}
 	c.cache[key] = e
 	c.mu.Unlock()
 
@@ -172,6 +176,8 @@ func (c *Cache) Flush() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lruIndex = list.New()
-	c.ttlIndex = make([]*list.Element, 0)
+	if c.expiration > 0 {
+		c.ttlIndex = make([]*list.Element, 0)
+	}
 	c.cache = make(map[interface{}]*list.Element)
 }
