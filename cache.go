@@ -6,20 +6,16 @@ import (
 	"time"
 )
 
-// Cache is an LRU cache. It is not safe for concurrent access.
+// Cache is an LRU cache.
 type Cache struct {
-	mu sync.RWMutex
+	sync.RWMutex
 	// MaxEntries is the maximum number of cache entries before
 	// an item is evicted. Zero means no limit.
 	maxEntries int
 
-	// OnEvicted optionally specificies a callback function to be
-	// executed when an entry is purged from the cache.
-	OnEvicted func(key string, value interface{})
-
 	lruIndex   *list.List
 	ttlIndex   []*list.Element
-	cache      map[interface{}]*list.Element
+	cache      map[string]*list.Element
 	expiration time.Duration
 }
 
@@ -37,7 +33,7 @@ func New(maxEntries int, expire time.Duration) *Cache {
 		maxEntries: maxEntries,
 		expiration: expire,
 		lruIndex:   list.New(),
-		cache:      make(map[interface{}]*list.Element),
+		cache:      make(map[string]*list.Element),
 	}
 	if c.expiration > 0 {
 		c.ttlIndex = make([]*list.Element, 0)
@@ -49,31 +45,32 @@ func New(maxEntries int, expire time.Duration) *Cache {
 // cleans expired entries performing minimal checks
 func (c *Cache) cleanExpired() {
 	for {
-		c.mu.RLock()
+		c.RLock()
 		if len(c.ttlIndex) == 0 {
-			c.mu.RUnlock()
+			c.RUnlock()
 			time.Sleep(c.expiration)
 			continue
 		}
 		e := c.ttlIndex[0]
-		c.mu.RUnlock()
 
 		en := e.Value.(*entry)
-		if time.Now().After(en.timestamp.Add(c.expiration)) {
-			c.mu.Lock()
+		exp := en.timestamp.Add(c.expiration)
+		c.RUnlock()
+		if time.Now().After(exp) {
+			c.Lock()
 			c.removeElement(e)
-			c.mu.Unlock()
+			c.Unlock()
 		} else {
-			time.Sleep(time.Now().Sub(en.timestamp.Add(c.expiration)))
+			time.Sleep(time.Now().Sub(exp))
 		}
 	}
 }
 
 // Add adds a value to the cache
 func (c *Cache) Set(key string, value interface{}) {
-	c.mu.Lock()
+	c.Lock()
 	if c.cache == nil {
-		c.cache = make(map[interface{}]*list.Element)
+		c.cache = make(map[string]*list.Element)
 		c.lruIndex = list.New()
 		if c.expiration > 0 {
 			c.ttlIndex = make([]*list.Element, 0)
@@ -87,7 +84,7 @@ func (c *Cache) Set(key string, value interface{}) {
 		en.value = value
 		en.timestamp = time.Now()
 
-		c.mu.Unlock()
+		c.Unlock()
 		return
 	}
 	e := c.lruIndex.PushFront(&entry{key: key, value: value, timestamp: time.Now()})
@@ -95,17 +92,17 @@ func (c *Cache) Set(key string, value interface{}) {
 		c.ttlIndex = append(c.ttlIndex, e)
 	}
 	c.cache[key] = e
-	c.mu.Unlock()
 
 	if c.maxEntries != 0 && c.lruIndex.Len() > c.maxEntries {
-		c.RemoveOldest()
+		c.removeOldest()
 	}
+	c.Unlock()
 }
 
 // Get looks up a key's value from the cache.
 func (c *Cache) Get(key string) (value interface{}, ok bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.Lock()
+	defer c.Unlock()
 	if c.cache == nil {
 		return
 	}
@@ -117,9 +114,9 @@ func (c *Cache) Get(key string) (value interface{}, ok bool) {
 }
 
 // Remove removes the provided key from the cache.
-func (c *Cache) Remove(key string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *Cache) Delete(key string) {
+	c.Lock()
+	defer c.Unlock()
 	if c.cache == nil {
 		return
 	}
@@ -129,9 +126,7 @@ func (c *Cache) Remove(key string) {
 }
 
 // RemoveOldest removes the oldest item from the cache.
-func (c *Cache) RemoveOldest() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *Cache) removeOldest() {
 	if c.cache == nil {
 		return
 	}
@@ -154,17 +149,16 @@ func (c *Cache) removeElement(e *list.Element) {
 			}
 		}
 	}
-	kv := e.Value.(*entry)
-	delete(c.cache, kv.key)
-	if c.OnEvicted != nil {
-		c.OnEvicted(kv.key, kv.value)
+	if e.Value != nil {
+		kv := e.Value.(*entry)
+		delete(c.cache, kv.key)
 	}
 }
 
 // Len returns the number of items in the cache.
 func (c *Cache) Len() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.RLock()
+	defer c.RUnlock()
 	if c.cache == nil {
 		return 0
 	}
@@ -173,11 +167,11 @@ func (c *Cache) Len() int {
 
 // empties the whole cache
 func (c *Cache) Flush() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.Lock()
+	defer c.Unlock()
 	c.lruIndex = list.New()
 	if c.expiration > 0 {
 		c.ttlIndex = make([]*list.Element, 0)
 	}
-	c.cache = make(map[interface{}]*list.Element)
+	c.cache = make(map[string]*list.Element)
 }

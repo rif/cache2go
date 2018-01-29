@@ -22,14 +22,14 @@ func TestCache(t *testing.T) {
 }
 
 func TestCacheExpire(t *testing.T) {
-	cache := New(0, 5*time.Millisecond)
+	cache := New(0, 1*time.Millisecond)
 	a := &myStruct{data: "mama are mere"}
 	cache.Set("mama", a)
 	b, ok := cache.Get("mama")
 	if !ok || b == nil || b != a {
 		t.Error("Error retriving data from cache", b)
 	}
-	time.Sleep(8 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 	b, ok = cache.Get("mama")
 	if ok || b != nil {
 		t.Error("Error expiring data from cache", b)
@@ -38,35 +38,37 @@ func TestCacheExpire(t *testing.T) {
 
 func TestLRU(t *testing.T) {
 	cache := New(32, 0)
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 100000; i++ {
 		cache.Set(fmt.Sprintf("%d", i), i)
 	}
 	if cache.Len() != 32 {
 		t.Error("error dicarding least recently used entry: ", cache.Len())
 	}
 	last := cache.lruIndex.Back().Value.(*entry).value.(int)
-	if last != 8 {
+	if last != 99968 {
 		t.Error("error dicarding least recently used entry: ", last)
 	}
 }
 
 func TestLRUandExpire(t *testing.T) {
 	cache := New(32, 5*time.Millisecond)
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 100000; i++ {
 		cache.Set(fmt.Sprintf("%d", i), i)
 	}
 	if cache.Len() != 32 {
 		t.Error("error dicarding least recently used entries: ", cache.Len())
 	}
+	cache.RLock()
 	last := cache.lruIndex.Back().Value.(*entry).value.(int)
-	if last != 8 {
+	cache.RUnlock()
+	if last != 99968 {
 		t.Error("error dicarding least recently used entry: ", last)
 	}
-	time.Sleep(8 * time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
 	if cache.Len() != 0 {
 		t.Error("error dicarding expired entries: ", cache.Len())
 	}
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 100000; i++ {
 		cache.Set(fmt.Sprintf("%d", i), i)
 	}
 	if cache.Len() != 32 {
@@ -102,6 +104,23 @@ func TestFlush(t *testing.T) {
 	}
 }
 
+func TestRemoveElementTTLIndex(t *testing.T) {
+	cache := New(32, 10*time.Hour)
+	wg := sync.WaitGroup{}
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func(x int) {
+			defer wg.Done()
+			cache.Set(fmt.Sprintf("%d", x), x)
+		}(i)
+	}
+	wg.Wait()
+	if cache.Len() != 32 {
+		t.Error("error dicarding least recently used entry: ", cache.Len())
+	}
+
+}
+
 func TestFlushNoTimeout(t *testing.T) {
 	cache := New(0, 5*time.Millisecond)
 	a := &myStruct{data: "mama are mere"}
@@ -119,7 +138,7 @@ func TestRemKey(t *testing.T) {
 	if t1, ok := cache.Get("t11_mm"); !ok || t1 != "test" {
 		t.Error("Error setting cache")
 	}
-	cache.Remove("t11_mm")
+	cache.Delete("t11_mm")
 	if t1, ok := cache.Get("t11_mm"); ok || t1 == "test" {
 		t.Error("Error removing cached key")
 	}
